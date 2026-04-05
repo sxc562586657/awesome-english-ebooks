@@ -1,0 +1,101 @@
+name: Economist Epub Mailer
+
+on:
+  schedule:
+    - cron: '0 8 * * 0'  # Every Sunday at 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this branch (.github only)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          sparse-checkout: |
+            .github
+
+      - name: Sync fork master from upstream
+        uses: aormsby/fork-sync-with-upstream-action@v3.4
+        with:
+          target_sync_branch: master
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_repo: hehonghui/awesome-english-ebooks
+          upstream_sync_branch: master
+
+      - name: Find latest Economist issue
+        run: |
+          LATEST_FOLDER=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist" \
+            | jq -r '.[] | select(.type == "dir") | .name' \
+            | grep '^te_' | sort | tail -1)
+          if [ -z "$LATEST_FOLDER" ]; then
+            echo "Could not find any te_* folders. Exiting."
+            exit 1
+          fi
+          echo "LATEST_FOLDER=$LATEST_FOLDER" >> $GITHUB_ENV
+          echo "ISSUE_DATE=${LATEST_FOLDER#te_}" >> $GITHUB_ENV
+          echo "Found latest issue: $LATEST_FOLDER"
+
+      - name: Check if already sent
+        run: |
+          LAST_SENT=""
+          if [ -f .github/last_sent.txt ]; then
+            LAST_SENT=$(cat .github/last_sent.txt | tr -d '[:space:]')
+          fi
+          if [ "$LATEST_FOLDER" = "$LAST_SENT" ]; then
+            echo "Already sent $LAST_SENT — nothing to do."
+            echo "NEW_ISSUE=false" >> $GITHUB_ENV
+          else
+            echo "New issue detected: $LATEST_FOLDER (last sent: ${LAST_SENT:-none})"
+            echo "NEW_ISSUE=true" >> $GITHUB_ENV
+          fi
+
+      - name: Download epub
+        if: env.NEW_ISSUE == 'true'
+        run: |
+          EPUB_URL=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist/${{ env.LATEST_FOLDER }}" \
+            | jq -r '.[] | select(.name | endswith(".epub")) | .download_url' \
+            | head -1)
+          if [ -z "$EPUB_URL" ]; then
+            echo "No .epub found in ${{ env.LATEST_FOLDER }} — skipping."
+            echo "NEW_ISSUE=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          echo "Downloading epub..."
+          curl -L -o "TheEconomist.${{ env.ISSUE_DATE }}.epub" "$EPUB_URL"
+          echo "EPUB_FILE=TheEconomist.${{ env.ISSUE_DATE }}.epub" >> $GITHUB_ENV
+
+      - name: Send email with epub
+        if: env.NEW_ISSUE == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.GMAIL_USER }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "The Economist — ${{ env.ISSUE_DATE }}"
+          to: ${{ secrets.RECIPIENT_EMAIL }}
+          from: ${{ secrets.GMAIL_USER }}
+          body: "Your weekly Economist epub (${{ env.ISSUE_DATE }}) is attached."
+          attachments: ${{ env.EPUB_FILE }}
+
+      - name: Mark issue as sent
+        if: env.NEW_ISSUE == 'true'
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          echo "${{ env.LATEST_FOLDER }}" > .github/last_sent.txt
+          git add .github/last_sent.txt
+          git commit -m "chore: mark ${{ env.LATEST_FOLDER }} as sent"
+          git push origin ${{ github.ref_name }}
