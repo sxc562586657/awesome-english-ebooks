@@ -30,6 +30,9 @@ jobs:
           upstream_sync_repo: hehonghui/awesome-english-ebooks
           upstream_sync_branch: master
 
+      - name: Switch back to workflow branch after sync
+        run: git checkout ${{ github.ref_name }}
+
       - name: Find latest Economist issue
         run: |
           LATEST_FOLDER=$(curl -s \
