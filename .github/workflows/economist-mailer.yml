@@ -2,7 +2,7 @@ name: Economist Epub Mailer
 
 on:
   schedule:
-    - cron: '0 8 * * 0'  # Every Sunday at 08:00 UTC
+    - cron: '0 8 * * 5'  # Every Friday at 08:00 UTC
   workflow_dispatch:
 
 permissions:
