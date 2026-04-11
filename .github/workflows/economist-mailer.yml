@@ -37,7 +37,7 @@ jobs:
         run: |
           LATEST_FOLDER=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist?ref=master" \
             | jq -r '.[] | select(.type == "dir") | .name' \
             | grep '^te_' | sort | tail -1)
           if [ -z "$LATEST_FOLDER" ]; then
@@ -67,7 +67,7 @@ jobs:
         run: |
           EPUB_URL=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist/${{ env.LATEST_FOLDER }}" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/01_economist/${{ env.LATEST_FOLDER }}?ref=master" \
             | jq -r '.[] | select(.name | endswith(".epub")) | .download_url' \
             | head -1)
           if [ -z "$EPUB_URL" ]; then
